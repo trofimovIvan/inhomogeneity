@@ -1,0 +1,117 @@
+units			cgs
+boundary		f f f
+atom_style		charge
+
+### System parameters ###
+
+variable 		radius_low equal 0.4
+variable 		radius equal 2.0
+variable		lo_low equal -0.01
+variable		hi_low equal 0.01
+variable 		lo equal -0.5
+variable 		hi equal 0.5
+variable		seed equal 8291
+variable		kappa equal 1.0e2
+variable		rcut equal 0.05
+variable		q equal 5.0e3*4.8032044e-10
+variable		alpha equal 5.0e-4
+variable		temp equal 300
+
+
+### Initial calculations ###
+variable		q2 equal ${q}*${q}
+variable		betta equal v_alpha*1.0e5 
+
+
+### Initial structure ###
+
+### region to locate atoms ###
+
+region                  space cylinder z 0 0 ${radius} ${lo} ${hi}
+create_box              1 space
+
+### spawn atoms ###
+
+region			init cylinder z 0 0 ${radius_low} ${lo_low} ${hi_low}
+create_atoms	1 random 1000 ${seed} init
+mass			1 1.0e-6
+velocity        all create 1 87287 loop geom mom yes rot yes
+
+### Interaction potential ###
+
+pair_style		yukawa ${kappa} ${rcut}
+pair_coeff		* * ${q2}
+
+### Trap field ###
+
+set				atom * charge ${q}
+variable		ex atom -1*${alpha}*x
+variable		ey atom -1*${alpha}*y
+variable		ez atom -1*${betta}*z
+variable		trapen atom 0.5*v_q*(${alpha}*(x*x+y*y)+${betta}*z*z)
+fix				trap all efield v_ex v_ey v_ez energy v_trapen
+fix_modify		trap energy yes
+
+dump			1 all custom 10000 dump.charge id x y z vx vy vz
+
+### Energy minimization ###
+
+minimize		1.0e-10 1.0e-10 10000 100
+
+neighbor        0.06 bin
+neigh_modify    every 20 delay 0 check no
+
+timestep 0.0001
+### Equlibration ###
+
+fix				zeromlin all momentum 700000 linear 1 1 1
+fix             zeromang all momentum 700000 angular
+
+thermo_style custom time etotal temp
+thermo 1000
+
+
+fix 			1 all nvt temp  1 ${temp} 0.0005
+run				700000
+unfix			1
+write_restart	*.res
+
+fix 			1 all nvt temp  ${temp} ${temp} 0.001
+run				700000
+unfix			1
+write_restart	*.res
+
+fix 			1 all nvt temp  ${temp} ${temp} 0.01
+run				700000
+unfix			1
+write_restart	*.res
+
+fix 			1 all nvt temp  ${temp} ${temp} 0.1
+run				700000
+unfix			1
+write_restart	*.res
+
+fix 			1 all nvt temp  ${temp} ${temp} 1.0
+run				700000
+unfix			1
+write_restart	*.res
+
+unfix			zeromlin
+unfix			zeromang
+reset_timestep 0
+  
+
+### After equilibration is done, nve ansamble is happen. ###
+
+fix 1 all nve
+
+
+thermo_style custom time etotal temp
+thermo 50000
+
+dump ther all custom 10000 crds.*.pos x y z
+dump_modify ther sort id
+
+run 2000000
+unfix 1
+write_restart	*.res

@@ -1,0 +1,107 @@
+read_restart    2000000.res
+
+### System parameters ###
+
+variable                radius_low equal 0.4
+variable                radius equal 2.0
+variable                lo_low equal -0.01
+variable                hi_low equal 0.01
+variable                lo equal -0.5
+variable                hi equal 0.5
+variable                seed equal 8291
+variable                kappa equal 1.0e2
+variable                rcut equal 0.05
+variable                q equal 5.0e3*4.8032044e-10
+variable                alpha equal 5.0e-4
+variable                temp equal 300
+
+
+### Initial calculations ###
+variable                q2 equal ${q}*${q}
+variable                betta equal v_alpha*1.0e5
+
+### Interaction potential ###
+
+pair_style              yukawa ${kappa} ${rcut}
+pair_coeff              * * ${q2}
+
+### Trap field ###
+
+set                             atom * charge ${q}
+variable                ex atom -1*${alpha}*x
+variable                ey atom -1*${alpha}*y
+variable                ez atom -1*${betta}*z
+variable                trapen atom 0.5*v_q*(${alpha}*(x*x+y*y)+${betta}*z*z)
+fix                             trap all efield v_ex v_ey v_ez energy v_trapen
+fix_modify              trap energy yes
+
+dump                    1 all custom 10000 dump.charge id x y z vx vy vz
+
+neighbor        0.06 bin
+neigh_modify    every 20 delay 0 check no
+
+timestep 0.0001
+
+### making regions ###
+
+variable radius1 equal v_radius_low*0.4
+variable radius2 equal v_radius_low*0.7
+variable radius3 equal v_radius_low*1.1
+variable radius4 equal v_radius_low*1.5
+
+region r1 cylinder z 0 0 ${radius1} ${lo_low} ${hi_low}
+region r2 cylinder z 0 0 ${radius2} ${lo_low} ${hi_low}
+region r3 cylinder z 0 0 ${radius3} ${lo_low} ${hi_low}
+region r4 cylinder z 0 0 ${radius4} ${lo_low} ${hi_low}
+
+#### groups ###
+group regg1 region r1
+group rr2 region r2
+group rr3 region r3
+group rr4 region r4
+
+group reg2 subtract rr2 regg1
+group reg3 subtract rr3 rr2
+group reg4 subtract rr4 rr3
+
+fix 1 all nve
+
+### After equilibration is done, nve ansamble is happen. ###
+compute t1 regg1 temp
+compute t2 reg2 temp
+compute t3 reg3 temp
+compute t4 reg4 temp
+
+compute rdf1 regg1 rdf 70
+compute rdf2 reg2 rdf 70
+compute rdf3 reg3 rdf 70
+compute rdf4 reg4 rdf 70
+
+compute vacf1 regg1 vacf
+compute vacf2 reg2 vacf
+compute vacf3 reg3 vacf
+compute vacf4 reg4 vacf
+
+compute d1 regg1 msd average yes
+compute d2 reg2 msd average yes
+compute d3 reg3 msd average yes
+compute d4 reg4 msd average yes
+
+###output temps ###
+#dump temps all custom 1000 temps.*.txt c_t1 c_t2 c_t3 c_t4
+
+### output rdf ###
+fix outrdf1 regg1 ave/time 100 1 2000000 c_rdf1[*] file tmp1.rdf mode vector
+fix outrdf2 reg2 ave/time 100 1 2000000 c_rdf2[*] file tmp2.rdf mode vector 
+fix outrdf3 reg3 ave/time 100 1 2000000 c_rdf3[*] file tmp3.rdf mode vector 
+fix outrdf4 reg4 ave/time 100 1 2000000 c_rdf4[*] file tmp4.rdf mode vector 
+
+###output temp msd and vacf ###
+thermo_style custom time c_t1 c_t2 c_t3 c_t4 c_vacf1[4] c_vacf2[4] c_vacf3[4] c_vacf4[4] c_d1[4] c_d2[4] c_d3[4] c_d4[4]
+thermo 1000
+
+### output cords ###
+dump ther all custom 1000 crds.*.pos x y z
+dump_modify ther sort id
+
+run 1000000
